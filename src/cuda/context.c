@@ -58,11 +58,7 @@ CUresult cuCtxCreate_v3 ( CUcontext* pctx, CUexecAffinityParam* paramsArray, int
 }
 #endif
 
-CUresult cuCtxCreate_v4(CUcontext* pctx, CUctxCreateParams* ctxCreateParams, unsigned int flags, CUdevice dev) {
-    LOG_DEBUG("into cuCtxCreate_v4 pctx=%p ctxCreateParams=%p flags=%d dev=%d", pctx, ctxCreateParams, flags, dev);
-    CUresult res = CUDA_OVERRIDE_CALL(cuda_library_entry, cuCtxCreate_v4, pctx, ctxCreateParams, flags, dev);
-    return res;
-}
+/* cuCtxCreate_v4 disabled for CUDA 11 */
 
 CUresult cuCtxDestroy_v2 ( CUcontext ctx ){
     LOG_DEBUG("into cuCtxDestroy_v2 ctx=%p",ctx);

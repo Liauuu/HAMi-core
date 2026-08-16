@@ -37,6 +37,11 @@ static int cached_sm_limit[CUDA_DEVICE_MAX_COUNT] = {0};
 static int cached_util_switch = 0;
 
 void rate_limiter(int grids, int blocks) {
+  static int rl_cnt = 0;
+  if (++rl_cnt % 5000 == 1) {
+    LOG_INFO("rate_limiter called: grids=%d blocks=%d sm_limit[0]=%d switch=%d g_cur_cores=%ld",
+             grids, blocks, cached_sm_limit[0], cached_util_switch, g_cur_cuda_cores[0]);
+  }
   CUdevice current_device;
   CUresult res = cuCtxGetDevice(&current_device);
   int device_id = (res == CUDA_SUCCESS) ? (int)current_device : 0;
@@ -287,6 +292,9 @@ void* utilization_watcher() {
             continue;
         }
         cached_util_switch = get_utilization_switch();
+        for (unsigned int dev = 0; dev < device_count && dev < CUDA_DEVICE_MAX_COUNT; dev++) {
+            cached_sm_limit[dev] = get_current_device_sm_limit(dev);
+        }
         LOG_INFO("init_utilization_watcher: util_switch=%d", cached_util_switch);
         init_gpu_device_utilization();
         get_used_gpu_utilization(userutil,&sysprocnum);
@@ -297,13 +305,18 @@ void* utilization_watcher() {
                 continue;
             }
 
+            /* Disabled runaway doubling: prevent token inflation */
             if ((share[dev] == g_total_cuda_cores[dev]) && (g_cur_cuda_cores[dev] < 0)) {
-              g_total_cuda_cores[dev] *= 2;
               share[dev] = g_total_cuda_cores[dev];
             }
 
             if ((userutil[dev] <= 100) && (userutil[dev] >= 0)) {
               share[dev] = delta(cached_sm_limit[dev], userutil[dev], share[dev], dev);
+              /* Clamp share to not exceed sm_limit proportion of total base cores */
+              int64_t max_allowed_share = (int64_t)g_max_thread_per_sm[dev] * (int64_t)g_sm_num[dev] * FACTOR * cached_sm_limit[dev] / 100;
+              if (share[dev] > max_allowed_share) {
+                share[dev] = max_allowed_share;
+              }
               change_token(share[dev], dev);
             }
 
@@ -315,6 +328,7 @@ void* utilization_watcher() {
 }
 
 void init_utilization_watcher() {
+    cached_util_switch = get_utilization_switch();
     unsigned int device_count;
     if (nvmlDeviceGetCount(&device_count) != NVML_SUCCESS) {
         LOG_WARN("nvmlDeviceGetCount failed");
@@ -334,8 +348,12 @@ void init_utilization_watcher() {
     }
 
     pthread_t tid;
+    LOG_INFO("init_utilization_watcher: has_limit=%d, util_switch=%d", has_limit, cached_util_switch);
     if (has_limit) {
         pthread_create(&tid, NULL, utilization_watcher, NULL);
+        LOG_INFO("utilization_watcher thread created");
+    } else {
+        LOG_WARN("utilization_watcher thread NOT created because has_limit=0");
     }
     return;
 }

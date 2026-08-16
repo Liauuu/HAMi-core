@@ -154,7 +154,7 @@ nvmlReturn_t set_task_pid() {
         //tmp_pids_on_device[i].pid=0;
     }
     unsigned int hostpid = getextrapid(previous,running_processes,pre_pids_on_device,pids_on_device); 
-    if (hostpid==0) {
+    if (hostpid==0) { hostpid = getpid(); LOG_WARN("NVML extra pid not detected, fallback to getpid(): %d", hostpid); } if (0) {
         LOG_ERROR("host pid is error!");
         return NVML_ERROR_DRIVER_NOT_LOADED;
     }

@@ -218,7 +218,19 @@ int active_oom_killer() {
     return 0;
 }
 
+
+void mark_compute_active() {
+    if (region_info.shared_region == NULL) return;
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
+    uint64_t now_ns = (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
+    atomic_store_explicit(&region_info.shared_region->last_launch_ns, now_ns, memory_order_relaxed);
+    atomic_store_explicit(&region_info.shared_region->compute_state, 1, memory_order_relaxed);
+}
+
 void pre_launch_kernel() {
+    mark_compute_active();
+
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME_COARSE, &ts);
     uint64_t now = (uint64_t)ts.tv_sec;
@@ -1398,10 +1410,23 @@ int set_current_device_sm_limit_scale(int dev, int scale) {
     return 0;
 }
 
+uint64_t get_dynamic_sm_limit(int dev) {
+    ensure_initialized();
+    if (dev < 0 || dev >= CUDA_DEVICE_MAX_COUNT) {
+        return 0;
+    }
+    return region_info.shared_region->dynamic_sm_limit[dev];
+}
+
 int get_current_device_sm_limit(int dev) {
     ensure_initialized();
     if (dev < 0 || dev >= CUDA_DEVICE_MAX_COUNT) {
         LOG_ERROR("Illegal device id: %d", dev);
+        return 0;
+    }
+    uint64_t dyn = region_info.shared_region->dynamic_sm_limit[dev];
+    if (dyn > 0) {
+        return (int)dyn;
     }
     return region_info.shared_region->sm_limit[dev];
 }

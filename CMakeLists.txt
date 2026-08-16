@@ -21,7 +21,7 @@ if (CMAKE_BUILD_TYPE STREQUAL Debug)
     set(LIBRARY_COMPILE_FLAGS -shared -fPIC -g -D_GNU_SOURCE -Wall)
     set(TEST_COMPILE_FLAGS -O1)
 else()
-    set(LIBRARY_COMPILE_FLAGS -shared -fPIC -D_GNU_SOURCE -fvisibility=hidden -Wall)
+    set(LIBRARY_COMPILE_FLAGS -shared -fPIC -D_GNU_SOURCE  -Wall)
     set(TEST_COMPILE_FLAGS -O1)
 endif()
 

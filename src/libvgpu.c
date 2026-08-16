@@ -160,7 +160,7 @@ void* __dlsym_hook_section(void* handle, const char* symbol) {
     DLSYM_HOOK_FUNC(cuCtxCreate_v2);
     DLSYM_HOOK_FUNC(cuCtxCreate_v3);
 #endif
-    DLSYM_HOOK_FUNC(cuCtxCreate_v4);
+    // // DLSYM_HOOK_FUNC(cuCtxCreate_v4);
     DLSYM_HOOK_FUNC(cuDevicePrimaryCtxGetState);
     DLSYM_HOOK_FUNC(cuDevicePrimaryCtxRetain);
     DLSYM_HOOK_FUNC(cuDevicePrimaryCtxSetFlags_v2);
@@ -908,8 +908,9 @@ void postInit(){
 
     LOG_MSG("Initialized");
     if (res != NVML_SUCCESS) {
-        LOG_WARN("SET_TASK_PID FAILED - using container PID for accounting");
-        pidfound = 0;
+        LOG_WARN("SET_TASK_PID FAILED - falling back to container PID as host PID");
+        set_host_pid(getpid());
+        pidfound = 1;
     } else {
         pidfound = 1;
     }

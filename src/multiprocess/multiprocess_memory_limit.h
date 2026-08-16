@@ -110,7 +110,17 @@ typedef struct {
     int priority;
     _Atomic uint64_t last_kernel_time;
     sem_t sem_postinit;  // Retained for shared-region layout compatibility
+    // Elastic SM limit ABI (libvgpu shared_region_t minor >= 3)
+    _Atomic int32_t compute_state;
+    int32_t compute_state_pad;
+    _Atomic uint64_t last_launch_ns;
+    uint64_t floor_sm_limit[CUDA_DEVICE_MAX_COUNT];
+    uint64_t dynamic_sm_limit[CUDA_DEVICE_MAX_COUNT];
 } shared_region_t;
+
+void mark_compute_active();
+uint64_t get_dynamic_sm_limit(int dev);
+
 
 typedef struct {
     int32_t pid;
