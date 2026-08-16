@@ -32,7 +32,7 @@ static volatile int64_t g_total_cuda_cores[CUDA_DEVICE_MAX_COUNT] = {0};
 extern int pidfound;
 int cuda_to_nvml_map_array[CUDA_DEVICE_MAX_COUNT];
 
-/* Cached at init — these values do not change at runtime */
+/* Refreshed each watcher tick from dynamic_sm_limit (floor/sm_limit fallback). */
 static int cached_sm_limit[CUDA_DEVICE_MAX_COUNT] = {0};
 static int cached_util_switch = 0;
 
@@ -293,6 +293,9 @@ void* utilization_watcher() {
 
         // Calculate independently for each device
         for (unsigned int dev = 0; dev < device_count && dev < CUDA_DEVICE_MAX_COUNT; dev++) {
+            /* Re-read every tick so a future monitor can raise/lower dynamic caps. */
+            cached_sm_limit[dev] = get_current_device_effective_sm_limit((int)dev);
+
             if (cached_sm_limit[dev] <= 0 || cached_sm_limit[dev] >= 100) {
                 continue;
             }
@@ -323,10 +326,10 @@ void init_utilization_watcher() {
 
     setspec();
 
-    // Initialize cached_sm_limit for each device
+    // Seed cache; watcher thread refreshes from dynamic_sm_limit each tick.
     int has_limit = 0;
     for (unsigned int dev = 0; dev < device_count && dev < CUDA_DEVICE_MAX_COUNT; dev++) {
-        cached_sm_limit[dev] = get_current_device_sm_limit(dev);
+        cached_sm_limit[dev] = get_current_device_effective_sm_limit((int)dev);
         LOG_INFO("device %d: core utilization limit = %d", dev, cached_sm_limit[dev]);
         if (cached_sm_limit[dev] > 0 && cached_sm_limit[dev] <= 100) {
             has_limit = 1;

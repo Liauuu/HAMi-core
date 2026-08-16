@@ -61,7 +61,14 @@
 #define FACTOR 32
 
 #define MAJOR_VERSION 1
-#define MINOR_VERSION 2
+#define MINOR_VERSION 3
+
+/* Container compute activity state for future elastic SM limiting.
+ * Step-1 only stores the field; no idle/headroom logic consumes it yet. */
+#define COMPUTE_STATE_UNSET           0
+#define COMPUTE_STATE_ACTIVE          1
+#define COMPUTE_STATE_IDLE_CANDIDATE  2
+#define COMPUTE_STATE_IDLE            3
 
 typedef struct {
     _Atomic uint64_t context_size;
@@ -110,6 +117,12 @@ typedef struct {
     int priority;
     _Atomic uint64_t last_kernel_time;
     sem_t sem_postinit;  // Retained for shared-region layout compatibility
+    /* Elastic SM limit ABI (minor >= 3). Unused by limiter until later steps. */
+    _Atomic int32_t compute_state;
+    int32_t compute_state_pad; /* align last_launch_ns to 8 bytes */
+    _Atomic uint64_t last_launch_ns;
+    uint64_t floor_sm_limit[CUDA_DEVICE_MAX_COUNT];
+    uint64_t dynamic_sm_limit[CUDA_DEVICE_MAX_COUNT];
 } shared_region_t;
 
 typedef struct {
@@ -130,6 +143,10 @@ typedef struct {
 void ensure_initialized();
 
 int get_current_device_sm_limit(int dev);
+/* Prefer dynamic_sm_limit; if 0/unset fall back to floor then sm_limit. */
+int get_current_device_effective_sm_limit(int dev);
+/* Same resolution rules on an explicit region (unit-testable). */
+int get_effective_sm_limit_on(const shared_region_t *region, int dev);
 uint64_t get_current_device_memory_limit(const int dev);
 int set_current_device_memory_limit(const int dev,size_t newlimit);
 int set_current_device_sm_limit(int dev,int scale);
@@ -157,6 +174,10 @@ int rm_gpu_device_memory_usage(int32_t pid,int dev,size_t usage,int type);
 shrreg_proc_slot_t *find_proc_by_hostpid(int hostpid);
 int active_oom_killer();
 void pre_launch_kernel();
+/* Lightweight launch-path marker: set compute_state=ACTIVE and last_launch_ns. */
+void mark_compute_active(void);
+/* Same as mark_compute_active(), but operates on an explicit region (unit-testable). */
+void mark_compute_active_on(shared_region_t *region);
 
 int shrreg_major_version();
 int shrreg_minor_version();

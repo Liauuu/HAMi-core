@@ -27,6 +27,32 @@ foreach(TEST_SCRIPT ${TEST_SCRIPTS})
             -ffunction-sections -fdata-sections)
         set_target_properties(${TEST_TARGET_NAME} PROPERTIES
             LINK_FLAGS "-Wl,--no-export-dynamic,--gc-sections")
+    elseif (TEST_TARGET_NAME STREQUAL "test_mark_compute_active")
+        # GPU-free unit test for mark_compute_active_on(). Links the production
+        # shared-region translation unit; gc-sections drops CUDA/NVML-facing
+        # functions that this test never calls.
+        add_executable(${TEST_TARGET_NAME}
+            ${TEST_SCRIPT}
+            ${CMAKE_CURRENT_SOURCE_DIR}/../src/multiprocess/multiprocess_memory_limit.c
+            ${CMAKE_CURRENT_SOURCE_DIR}/../src/log_utils.c)
+        target_compile_definitions(${TEST_TARGET_NAME} PRIVATE
+            _GNU_SOURCE)
+        target_compile_options(${TEST_TARGET_NAME} PRIVATE
+            -ffunction-sections -fdata-sections)
+        set_target_properties(${TEST_TARGET_NAME} PROPERTIES
+            LINK_FLAGS "-Wl,--no-export-dynamic,--gc-sections")
+    elseif (TEST_TARGET_NAME STREQUAL "test_effective_sm_limit")
+        # GPU-free unit test for get_effective_sm_limit_on() fallback + re-read.
+        add_executable(${TEST_TARGET_NAME}
+            ${TEST_SCRIPT}
+            ${CMAKE_CURRENT_SOURCE_DIR}/../src/multiprocess/multiprocess_memory_limit.c
+            ${CMAKE_CURRENT_SOURCE_DIR}/../src/log_utils.c)
+        target_compile_definitions(${TEST_TARGET_NAME} PRIVATE
+            _GNU_SOURCE)
+        target_compile_options(${TEST_TARGET_NAME} PRIVATE
+            -ffunction-sections -fdata-sections)
+        set_target_properties(${TEST_TARGET_NAME} PROPERTIES
+            LINK_FLAGS "-Wl,--no-export-dynamic,--gc-sections")
     elseif (TEST_SCRIPT MATCHES ".*cu")
         cuda_add_executable(${TEST_TARGET_NAME}  ${TEST_SCRIPT})
     else()
@@ -34,8 +60,10 @@ foreach(TEST_SCRIPT ${TEST_SCRIPTS})
     endif()
 
     list(APPEND TEST_TARGET_NAMES_LIST ${TEST_TARGET_NAME})
-    if (TEST_TARGET_NAME STREQUAL "test_postinit_owner_death")
-        target_link_libraries(${TEST_TARGET_NAME} -lrt -lpthread)
+    if (TEST_TARGET_NAME STREQUAL "test_postinit_owner_death" OR
+        TEST_TARGET_NAME STREQUAL "test_mark_compute_active" OR
+        TEST_TARGET_NAME STREQUAL "test_effective_sm_limit")
+        target_link_libraries(${TEST_TARGET_NAME} -lrt -lpthread -lnvidia-ml -ldl)
     else()
         target_link_libraries(${TEST_TARGET_NAME} -lrt -lpthread
             -lnvidia-ml -lcuda -lcudart -L${CUDA_HOME}/lib64)
@@ -51,6 +79,14 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 add_test(NAME postinit_owner_death
     COMMAND test_postinit_owner_death)
 set_tests_properties(postinit_owner_death PROPERTIES TIMEOUT 20)
+
+add_test(NAME mark_compute_active
+    COMMAND test_mark_compute_active)
+set_tests_properties(mark_compute_active PROPERTIES TIMEOUT 10)
+
+add_test(NAME effective_sm_limit
+    COMMAND test_effective_sm_limit)
+set_tests_properties(effective_sm_limit PROPERTIES TIMEOUT 10)
 
 
 add_custom_target(python_test ALL

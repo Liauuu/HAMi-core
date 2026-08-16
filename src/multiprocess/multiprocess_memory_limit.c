@@ -218,7 +218,33 @@ int active_oom_killer() {
     return 0;
 }
 
+void mark_compute_active_on(shared_region_t *region) {
+    if (region == NULL) {
+        return;
+    }
+
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC_COARSE, &ts);
+    uint64_t now_ns =
+        (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
+    atomic_store_explicit(&region->last_launch_ns, now_ns, memory_order_relaxed);
+
+    int32_t state =
+        atomic_load_explicit(&region->compute_state, memory_order_relaxed);
+    if (state != COMPUTE_STATE_ACTIVE) {
+        atomic_store_explicit(&region->compute_state, COMPUTE_STATE_ACTIVE,
+                              memory_order_relaxed);
+    }
+}
+
+void mark_compute_active(void) {
+    mark_compute_active_on(region_info.shared_region);
+}
+
 void pre_launch_kernel() {
+    /* Always mark activity first — do not sit behind last_kernel_time throttle. */
+    mark_compute_active();
+
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME_COARSE, &ts);
     uint64_t now = (uint64_t)ts.tv_sec;
@@ -1292,6 +1318,19 @@ void try_create_shrreg() {
         if (_priority_env != NULL)
             region->priority = atoi(_priority_env);
 
+        /* Elastic fields: mirror sm_limit; unused by limiter in this step. */
+        {
+            int ei;
+            for (ei = 0; ei < CUDA_DEVICE_MAX_COUNT; ++ei) {
+                region->floor_sm_limit[ei] = region->sm_limit[ei];
+                region->dynamic_sm_limit[ei] = region->sm_limit[ei];
+            }
+            atomic_store_explicit(&region->last_launch_ns, 0, memory_order_relaxed);
+            region->compute_state_pad = 0;
+            atomic_store_explicit(&region->compute_state, COMPUTE_STATE_ACTIVE,
+                                 memory_order_relaxed);
+        }
+
         // Release barrier ensures all initialization is visible before flag is set
         atomic_thread_fence(memory_order_release);
         atomic_store_explicit(&region->initialized_flag, MULTIPROCESS_SHARED_REGION_MAGIC_FLAG, memory_order_release);
@@ -1321,6 +1360,18 @@ void try_create_shrreg() {
                     i, local_limits[i], region->sm_limit[i]);
             //    exit(1); 
             }
+        }
+        /* Old caches extended by ftruncate may have zeroed elastic fields. */
+        if (atomic_load_explicit(&region->compute_state, memory_order_relaxed) ==
+            COMPUTE_STATE_UNSET) {
+            for (i = 0; i < CUDA_DEVICE_MAX_COUNT; ++i) {
+                region->floor_sm_limit[i] = region->sm_limit[i];
+                region->dynamic_sm_limit[i] = region->sm_limit[i];
+            }
+            atomic_store_explicit(&region->last_launch_ns, 0, memory_order_relaxed);
+            region->compute_state_pad = 0;
+            atomic_store_explicit(&region->compute_state, COMPUTE_STATE_ACTIVE,
+                                 memory_order_relaxed);
         }
     }
     region->last_kernel_time = region_info.last_kernel_time;
@@ -1404,6 +1455,31 @@ int get_current_device_sm_limit(int dev) {
         LOG_ERROR("Illegal device id: %d", dev);
     }
     return region_info.shared_region->sm_limit[dev];
+}
+
+int get_effective_sm_limit_on(const shared_region_t *region, int dev) {
+    if (region == NULL || dev < 0 || dev >= CUDA_DEVICE_MAX_COUNT) {
+        return 0;
+    }
+    /* dynamic == 0 means unset; fall back to floor then sm_limit. */
+    uint64_t dyn = region->dynamic_sm_limit[dev];
+    if (dyn != 0) {
+        return (int)dyn;
+    }
+    uint64_t floor = region->floor_sm_limit[dev];
+    if (floor != 0) {
+        return (int)floor;
+    }
+    return (int)region->sm_limit[dev];
+}
+
+int get_current_device_effective_sm_limit(int dev) {
+    ensure_initialized();
+    if (dev < 0 || dev >= CUDA_DEVICE_MAX_COUNT) {
+        LOG_ERROR("Illegal device id: %d", dev);
+        return 0;
+    }
+    return get_effective_sm_limit_on(region_info.shared_region, dev);
 }
 
 int set_current_device_memory_limit(const int dev,size_t newlimit) {
